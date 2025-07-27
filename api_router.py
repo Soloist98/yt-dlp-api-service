@@ -21,6 +21,12 @@ class DownloadRequest(BaseModel):
     quiet: bool = False
 
 
+class BatchDownloadRequest(BaseModel):
+    tasks: list[DownloadRequest]
+
+class BatchTaskQueryRequest(BaseModel):
+    task_ids: list[str]
+
 async def process_download_task(task_id: str, url: str, output_path: str, format: str, quiet: bool):
     try:
         loop = asyncio.get_event_loop()
@@ -39,19 +45,19 @@ async def process_download_task(task_id: str, url: str, output_path: str, format
         state.update_task(task_id, "failed", error=str(e))
 
 
-@router.post("/download", response_class=JSONResponse)
-async def api_download_video(request: DownloadRequest):
+def create_or_get_task(request: DownloadRequest) -> str:
+    # 查找已存在任务
     existing_task = next((task for task in state.tasks.values() if
                           task.format == request.format and task.url == request.url and task.output_path == request.output_path),
                          None)
     if existing_task:
-          return {"status": "success", "task_id": existing_task.id}
+        return existing_task.id
 
-    # 判断DownloadRequest的url是否包含pornhub，如果是则给output_path添加后缀"91porn"
+    # 特殊处理
     if "pornhub" in request.url:
         if not request.output_path.endswith("pornhub"):
             request.output_path = f"{request.output_path}/pornhub"
-    
+
     task_id = state.add_task(request.url, request.output_path, request.format)
     asyncio.create_task(process_download_task(
         task_id=task_id,
@@ -60,7 +66,19 @@ async def api_download_video(request: DownloadRequest):
         format=request.format,
         quiet=request.quiet
     ))
+    return task_id
+
+
+@router.post("/download", response_class=JSONResponse)
+async def api_download_video(request: DownloadRequest):
+    task_id = create_or_get_task(request)
     return {"status": "success", "task_id": task_id}
+
+
+@router.post("/batch_download", response_class=JSONResponse)
+async def batch_download(request: BatchDownloadRequest):
+    task_ids = [create_or_get_task(task_req) for task_req in request.tasks]
+    return {"status": "success", "task_ids": task_ids}
 
 
 @router.get("/task/{task_id}", response_class=JSONResponse)
@@ -82,12 +100,36 @@ async def get_task_status(task_id: str):
         response["data"]["error"] = task.error
     return response
 
-
 @router.get("/tasks", response_class=JSONResponse)
 async def list_all_tasks():
     tasks = state.list_tasks()
     return {"status": "success", "data": tasks}
 
+@router.post("/batch_tasks", response_class=JSONResponse)
+async def batch_get_tasks(request: BatchTaskQueryRequest):
+    results = []
+    all_finished = True
+    for task_id in request.task_ids:
+        task = state.get_task(task_id)
+        if not task:
+            results.append({
+                "id": task_id,
+                "status": "not_found"
+            })
+            continue
+        task_info = {
+            "id": task.id,
+            "url": task.url,
+            "status": task.status
+        }
+        if task.status == "completed" and task.result:
+            task_info["result"] = task.result
+        elif task.status == "failed" and task.error:
+            task_info["error"] = task.error
+        if task.status not in ("completed", "failed"):
+            all_finished = False
+        results.append(task_info)
+    return {"status": "success", "data": results, "all_finished": all_finished}
 
 @router.get("/info", response_class=JSONResponse)
 async def api_get_video_info(url: str = Query(..., description="The URL of the video")):
@@ -136,3 +178,4 @@ async def download_completed_video(task_id: str):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error accessing video file: {str(e)}")
+
