@@ -46,17 +46,15 @@ async def process_download_task(task_id: str, url: str, output_path: str, format
 
 
 def create_or_get_task(request: DownloadRequest) -> str:
-    # 查找已存在任务
-    existing_task = next((task for task in state.tasks.values() if
-                          task.format == request.format and task.url == request.url and task.output_path == request.output_path),
-                         None)
-    if existing_task:
-        return existing_task.id
-
     # 特殊处理
     if "pornhub" in request.url:
         if not request.output_path.endswith("pornhub"):
             request.output_path = f"{request.output_path}/pornhub"
+
+    # 从数据库查找已存在任务
+    existing_task = state.task_exists(request.url, request.output_path, request.format)
+    if existing_task:
+        return existing_task.id
 
     task_id = state.add_task(request.url, request.output_path, request.format)
     asyncio.create_task(process_download_task(
@@ -104,6 +102,15 @@ async def get_task_status(task_id: str):
 async def list_all_tasks():
     tasks = state.list_tasks()
     return {"status": "success", "data": tasks}
+
+@router.delete("/tasks", response_class=JSONResponse)
+async def clear_all_tasks():
+    """清除数据库中的所有任务"""
+    success = state.clear_all_tasks()
+    if success:
+        return {"status": "success", "message": "All tasks have been cleared"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to clear tasks")
 
 @router.post("/batch_tasks", response_class=JSONResponse)
 async def batch_get_tasks(request: BatchTaskQueryRequest):

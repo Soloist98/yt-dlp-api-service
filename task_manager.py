@@ -26,10 +26,9 @@ class Task(BaseModel):
 
 class State:
     def __init__(self):
-        self.tasks: Dict[str, Task] = {}
         self.db_file = "tasks.db"
         self._init_db()
-        self._load_tasks()
+    
     def _init_db(self) -> None:
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
@@ -47,16 +46,23 @@ class State:
         ''')
         conn.commit()
         conn.close()
-    def _load_tasks(self) -> None:
+    
+    def _get_db_connection(self):
+        return sqlite3.connect(self.db_file)
+    
+    def _load_task_from_db(self, task_id: str) -> Optional[Task]:
+        """从数据库加载单个任务"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self._get_db_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT id, url, output_path, format, status, result, error FROM tasks")
-            rows = cursor.fetchall()
-            for row in rows:
+            cursor.execute("SELECT id, url, output_path, format, status, result, error FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
                 task_id, url, output_path, format, status, result_json, error = row
                 result = json.loads(result_json) if result_json else None
-                task = Task(
+                return Task(
                     id=task_id,
                     url=url,
                     output_path=output_path,
@@ -65,14 +71,14 @@ class State:
                     result=result,
                     error=error
                 )
-                self.tasks[task_id] = task
-            conn.close()
+            return None
         except Exception as e:
-            print(f"Error loading tasks from database: {e}")
+            print(f"Error loading task from database: {e}")
+            return None
+    
     def _save_task(self, task: Task) -> None:
         try:
-            self.tasks[task.id] = task
-            conn = sqlite3.connect(self.db_file)
+            conn = self._get_db_connection()
             cursor = conn.cursor()
             timestamp = datetime.datetime.now().isoformat()
             result_json = json.dumps(task.result) if task.result else None
@@ -93,6 +99,7 @@ class State:
             conn.close()
         except Exception as e:
             print(f"Error saving task to database: {e}")
+    
     def add_task(self, url: str, output_path: str, format: str) -> str:
         task_id = str(uuid.uuid4())
         task = Task(
@@ -102,19 +109,90 @@ class State:
             format=format,
             status="pending"
         )
-        self.tasks[task_id] = task
         self._save_task(task)
         return task_id
+    
     def get_task(self, task_id: str) -> Optional[Task]:
-        return self.tasks.get(task_id)
+        """从数据库查询单个任务"""
+        return self._load_task_from_db(task_id)
+    
     def update_task(self, task_id: str, status: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> None:
-        if task_id in self.tasks:
-            task = self.tasks[task_id]
+        """更新任务状态"""
+        task = self._load_task_from_db(task_id)
+        if task:
             task.status = status
             if result:
                 task.result = result
             if error:
                 task.error = error
             self._save_task(task)
+    
     def list_tasks(self) -> List[Task]:
-        return list(self.tasks.values()) 
+        """从数据库查询所有任务"""
+        try:
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, url, output_path, format, status, result, error FROM tasks ORDER BY timestamp DESC")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            tasks = []
+            for row in rows:
+                task_id, url, output_path, format, status, result_json, error = row
+                result = json.loads(result_json) if result_json else None
+                task = Task(
+                    id=task_id,
+                    url=url,
+                    output_path=output_path,
+                    format=format,
+                    status=status,
+                    result=result,
+                    error=error
+                )
+                tasks.append(task)
+            return tasks
+        except Exception as e:
+            print(f"Error loading tasks from database: {e}")
+            return []
+    
+    def task_exists(self, url: str, output_path: str, format: str) -> Optional[Task]:
+        """检查任务是否已存在"""
+        try:
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, url, output_path, format, status, result, error FROM tasks WHERE url = ? AND output_path = ? AND format = ?",
+                (url, output_path, format)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                task_id, url, output_path, format, status, result_json, error = row
+                result = json.loads(result_json) if result_json else None
+                return Task(
+                    id=task_id,
+                    url=url,
+                    output_path=output_path,
+                    format=format,
+                    status=status,
+                    result=result,
+                    error=error
+                )
+            return None
+        except Exception as e:
+            print(f"Error checking task existence: {e}")
+            return None
+    
+    def clear_all_tasks(self) -> bool:
+        """清除数据库中的所有任务"""
+        try:
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM tasks")
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error clearing all tasks: {e}")
+            return False 
