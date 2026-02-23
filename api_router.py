@@ -71,15 +71,43 @@ def create_or_get_task(request: DownloadRequest) -> str:
     # 从数据库查找已存在任务（只根据URL判断）
     existing_task = state.task_exists(request.url)
     if existing_task:
-        logger.info("Reusing existing task", extra={
-            "task_id": existing_task.id,
-            "url": request.url,
-            "status": existing_task.status,
-            "existing_output_path": existing_task.output_path,
-            "requested_output_path": request.output_path
-        })
-        return existing_task.id
+        # 如果任务已完成，直接返回
+        if existing_task.status == "completed":
+            logger.info("Reusing completed task", extra={
+                "task_id": existing_task.id,
+                "url": request.url,
+                "video_title": existing_task.video_title
+            })
+            return existing_task.id
 
+        # 如果任务失败，重置状态并重新下载
+        if existing_task.status == "failed":
+            logger.info("Retrying failed task", extra={
+                "task_id": existing_task.id,
+                "url": request.url,
+                "previous_error": existing_task.error
+            })
+            # 重置任务状态为 pending
+            state.update_task(existing_task.id, "pending", error=None)
+            # 重新启动下载任务
+            asyncio.create_task(process_download_task(
+                task_id=existing_task.id,
+                url=request.url,
+                output_path=request.output_path,
+                format=request.format,
+                quiet=request.quiet
+            ))
+            return existing_task.id
+
+        # 如果任务正在进行中，直接返回
+        if existing_task.status == "pending":
+            logger.info("Task already in progress", extra={
+                "task_id": existing_task.id,
+                "url": request.url
+            })
+            return existing_task.id
+
+    # 创建新任务
     task_id = state.add_task(request.url, request.output_path, request.format)
     asyncio.create_task(process_download_task(
         task_id=task_id,

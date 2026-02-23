@@ -128,7 +128,7 @@ class State:
                     # 从结果中提取视频标题
                     if 'title' in result:
                         db_task.video_title = result['title']
-                if error:
+                if error is not None:  # 允许清除错误信息
                     db_task.error = error
                 db.commit()
 
@@ -145,6 +145,8 @@ class State:
                         **log_extra,
                         "video_title": db_task.video_title
                     })
+                elif status == "pending" and old_status == "failed":
+                    logger.info("Task reset for retry", extra=log_extra)
                 else:
                     logger.info("Task status updated", extra=log_extra)
         except Exception as e:
