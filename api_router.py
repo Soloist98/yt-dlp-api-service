@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import httpx
 from task_manager import State, Task
 from downloader import download_video
 from config import settings
@@ -195,3 +196,87 @@ async def batch_get_tasks(request: BatchTaskQueryRequest):
             all_finished = False
         results.append(task_info)
     return {"status": "success", "data": results, "all_finished": all_finished}
+
+
+@router.get("/fetch", response_class=JSONResponse)
+async def fetch_91porn_page(page: int = 1):
+    """获取91porn页面内容"""
+    url = f"https://91porn.com/v.php?category=rf&viewtype=basic&page={page}"
+
+    # 检查cookie配置
+    if not settings.porn91_cookie:
+        logger.warning("No 91porn cookie configured", extra={"page": page})
+        raise HTTPException(
+            status_code=500,
+            detail="91porn cookie not configured in .env file"
+        )
+
+    # 配置请求头
+    headers = {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "zh-CN,zh;q=0.9",
+        "cache-control": "no-cache",
+        "pragma": "no-cache",
+        "priority": "u=0, i",
+        "sec-ch-ua": '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "cookie": settings.porn91_cookie
+    }
+
+    logger.info("Fetching 91porn page", extra={"page": page, "url": url})
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+
+            logger.info("Successfully fetched 91porn page", extra={
+                "page": page,
+                "status_code": response.status_code,
+                "content_length": len(response.text)
+            })
+
+            return {
+                "status": "success",
+                "data": {
+                    "page": page,
+                    "url": url,
+                    "content": response.text,
+                    "status_code": response.status_code
+                }
+            }
+    except httpx.HTTPStatusError as e:
+        logger.error("HTTP error fetching 91porn page", extra={
+            "page": page,
+            "status_code": e.response.status_code,
+            "error": str(e)
+        })
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Failed to fetch page: {str(e)}"
+        )
+    except httpx.RequestError as e:
+        logger.error("Request error fetching 91porn page", extra={
+            "page": page,
+            "error": str(e)
+        })
+        raise HTTPException(
+            status_code=500,
+            detail=f"Request failed: {str(e)}"
+        )
+    except Exception as e:
+        logger.error("Unexpected error fetching 91porn page", extra={
+            "page": page,
+            "error": str(e)
+        })
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}"
+        )

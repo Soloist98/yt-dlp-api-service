@@ -114,10 +114,10 @@ All configuration is managed through `.env` file using pydantic-settings:
 ```sql
 tasks (
     id VARCHAR(36) PRIMARY KEY,
-    url TEXT NOT NULL,              -- Indexed for deduplication
+    url TEXT NOT NULL,              -- Indexed for deduplication (prefix index)
     video_title VARCHAR(500),       -- Extracted on completion
     output_path VARCHAR(500),
-    format ),
+    format VARCHAR(100),
     status VARCHAR(20) NOT NULL,    -- Indexed: pending/completed/failed
     result TEXT,                    -- JSON metadata
     error TEXT,
@@ -171,7 +171,7 @@ See `SYSTEMD.md` for detailed systemd deployment guide.
 
 1. **No format prefix in filenames**: Files are saved as `title.ext` not `format-title.ext`
 
-2. **URL-based deduplicame URL = same task, regardless of output_path or format
+2. **URL-based deduplication**: Same URL = same task, regardless of output_path or format
 
 3. **Automatic retry**: Failed tasks automatically retry when the same URL is submitted again
 
@@ -212,4 +212,5 @@ Example: `[type]: feat [description]:添加视频标题字段到数据库`
 
 - `README_CN.md`: Chinese documentation
 - `SYSTEMD.md`: systemd service deployment guide
-- .md`: Planned improvements and known is `INSTALL.md`: Generated in package, deployment instructions
+- `TODO.md`: Planned improvements and known issues
+- `INSTALL.md`: Generated in package, deployment instructions

@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # 例如: {"pornhub": "adult", "youtube": "youtube"}
     site_path_mapping: str = "{}"
 
+    # 91porn Cookie配置
+    porn91_cookie: str = ""
+
     # 日志配置
     log_level: str = "INFO"
     log_format: str = "json"  # json 或 text

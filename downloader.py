@@ -3,6 +3,7 @@ import yt_dlp
 from typing import Dict, Any, List
 from task_manager import NormalizeString
 from logger import logger
+from config import settings
 
 
 def download_video(url: str, output_path: str = "./downloads", format: str = "best", quiet: bool = False) -> Dict[
@@ -16,6 +17,12 @@ def download_video(url: str, output_path: str = "./downloads", format: str = "be
         'format': format,
         'no_abort_on_error': True,
     }
+
+    # 只有 91porn 的视频下载才使用 Cookie
+    if '91porn' in url.lower() and settings.porn91_cookie:
+        ydl_opts['http_headers'] = {
+            'Cookie': settings.porn91_cookie
+        }
 
     logger.info("Starting video download", extra={
         "url": url,
