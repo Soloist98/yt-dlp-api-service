@@ -12,3 +12,12 @@ typing-inspection==0.4.0
 typing_extensions==4.13.2
 uvicorn==0.34.2
 yt-dlp==2025.3.31
+
+# 配置管理
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# 数据库
+SQLAlchemy==2.0.36
+pymysql==1.1.1
+cryptography==44.0.0

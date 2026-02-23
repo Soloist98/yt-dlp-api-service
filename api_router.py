@@ -7,16 +7,19 @@ import os
 import platform
 from task_manager import State, Task
 from downloader import download_video, get_video_info, list_available_formats
+from config import settings
 
 router = APIRouter()
 
 state = State()
 
+# 使用配置的线程池大小创建全局线程池
+executor = ThreadPoolExecutor(max_workers=settings.thread_pool_size)
+
 
 class DownloadRequest(BaseModel):
     url: str
-
-    output_path: str = "./downloads" if platform.system() == "Windows" else "/mnt/nas/movie"
+    output_path: str = settings.default_download_path
     format: str = "bestvideo+bestaudio/best"
     quiet: bool = False
 
@@ -30,16 +33,15 @@ class BatchTaskQueryRequest(BaseModel):
 async def process_download_task(task_id: str, url: str, output_path: str, format: str, quiet: bool):
     try:
         loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            result = await loop.run_in_executor(
-                executor,
-                lambda: download_video(
-                    url=url,
-                    output_path=output_path,
-                    format=format,
-                    quiet=quiet,
-                )
+        result = await loop.run_in_executor(
+            executor,
+            lambda: download_video(
+                url=url,
+                output_path=output_path,
+                format=format,
+                quiet=quiet,
             )
+        )
         state.update_task(task_id, "completed", result=result)
     except Exception as e:
         state.update_task(task_id, "failed", error=str(e))
