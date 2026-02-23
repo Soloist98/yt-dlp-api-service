@@ -7,3 +7,12 @@ tasks.db
 # 日志目录
 logs/
 *.log
+
+# yt-dlp plugins
+app/yt_dlp_plugins/
+/.idea/.gitignore
+/.idea/yt-dlp-api.iml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/vcs.xml

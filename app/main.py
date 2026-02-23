@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 import uvicorn
-from api_router import router
-from config import settings
-from logger import logger
+from app.api.router import router
+from app.config import settings
+from app.utils.logger import logger
 
 app = FastAPI(
     title="yt-dlp API",
