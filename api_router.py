@@ -30,6 +30,7 @@ class BatchDownloadRequest(BaseModel):
 
 
 async def process_download_task(task_id: str, url: str, output_path: str, format: str, quiet: bool):
+    result = None
     try:
         logger.info("Starting download task", extra={
             "task_id": task_id,
@@ -55,7 +56,7 @@ async def process_download_task(task_id: str, url: str, output_path: str, format
             "url": url
         })
     except Exception as e:
-        state.update_task(task_id, "failed", error=str(e))
+        state.update_task(task_id, "failed", result=result, error=str(e))
         logger.error("Download task failed", extra={
             "task_id": task_id,
             "url": url,
@@ -89,8 +90,8 @@ def create_or_get_task(request: DownloadRequest) -> str:
                 "url": request.url,
                 "previous_error": existing_task.error
             })
-            # 重置任务状态为 pending
-            state.update_task(existing_task.id, "pending", error=None)
+            # 重置任务状态为 pending，清除错误信息
+            state.update_task(existing_task.id, "pending", error="")
             # 重新启动下载任务
             asyncio.create_task(process_download_task(
                 task_id=existing_task.id,
