@@ -2,3 +2,8 @@ venv/
 downloads/
 .DS_Store
 tasks.db
+.env
+
+# 日志目录
+logs/
+*.log

@@ -34,6 +34,11 @@ class Settings(BaseSettings):
 
     # 日志配置
     log_level: str = "INFO"
+    log_format: str = "json"  # json 或 text
+    log_file: str = "logs/app.log"
+    log_rotation: str = "100 MB"  # 日志轮转大小
+    log_retention: str = "30 days"  # 日志保留时间
+    log_compression: str = "zip"  # 日志压缩格式
 
     model_config = SettingsConfigDict(
         env_file=".env",

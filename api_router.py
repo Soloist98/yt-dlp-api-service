@@ -4,10 +4,10 @@ from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import os
-import platform
 from task_manager import State, Task
 from downloader import download_video, get_video_info, list_available_formats
 from config import settings
+from logger import logger
 
 router = APIRouter()
 
@@ -32,6 +32,13 @@ class BatchTaskQueryRequest(BaseModel):
 
 async def process_download_task(task_id: str, url: str, output_path: str, format: str, quiet: bool):
     try:
+        logger.info("Starting download task", extra={
+            "task_id": task_id,
+            "url": url,
+            "output_path": output_path,
+            "format": format
+        })
+
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             executor,
@@ -43,8 +50,18 @@ async def process_download_task(task_id: str, url: str, output_path: str, format
             )
         )
         state.update_task(task_id, "completed", result=result)
+
+        logger.info("Download task completed successfully", extra={
+            "task_id": task_id,
+            "url": url
+        })
     except Exception as e:
         state.update_task(task_id, "failed", error=str(e))
+        logger.error("Download task failed", extra={
+            "task_id": task_id,
+            "url": url,
+            "error": str(e)
+        })
 
 
 def create_or_get_task(request: DownloadRequest) -> str:
@@ -56,6 +73,11 @@ def create_or_get_task(request: DownloadRequest) -> str:
     # 从数据库查找已存在任务
     existing_task = state.task_exists(request.url, request.output_path, request.format)
     if existing_task:
+        logger.info("Reusing existing task", extra={
+            "task_id": existing_task.id,
+            "url": request.url,
+            "status": existing_task.status
+        })
         return existing_task.id
 
     task_id = state.add_task(request.url, request.output_path, request.format)
@@ -71,12 +93,14 @@ def create_or_get_task(request: DownloadRequest) -> str:
 
 @router.post("/download", response_class=JSONResponse)
 async def api_download_video(request: DownloadRequest):
+    logger.info("Received download request", extra={"url": request.url})
     task_id = create_or_get_task(request)
     return {"status": "success", "task_id": task_id}
 
 
 @router.post("/batch_download", response_class=JSONResponse)
 async def batch_download(request: BatchDownloadRequest):
+    logger.info("Received batch download request", extra={"count": len(request.tasks)})
     task_ids = [create_or_get_task(task_req) for task_req in request.tasks]
     return {"status": "success", "task_ids": task_ids}
 
@@ -85,7 +109,9 @@ async def batch_download(request: BatchDownloadRequest):
 async def get_task_status(task_id: str):
     task = state.get_task(task_id)
     if not task:
+        logger.warning("Task not found", extra={"task_id": task_id})
         raise HTTPException(status_code=404, detail=f"Task with ID {task_id} not found")
+
     response = {
         "status": "success",
         "data": {
@@ -103,11 +129,13 @@ async def get_task_status(task_id: str):
 @router.get("/tasks", response_class=JSONResponse)
 async def list_all_tasks():
     tasks = state.list_tasks()
+    logger.debug("Listed all tasks", extra={"count": len(tasks)})
     return {"status": "success", "data": tasks}
 
 @router.delete("/tasks", response_class=JSONResponse)
 async def clear_all_tasks():
     """清除数据库中的所有任务"""
+    logger.warning("Clearing all tasks")
     success = state.clear_all_tasks()
     if success:
         return {"status": "success", "message": "All tasks have been cleared"}
@@ -116,6 +144,7 @@ async def clear_all_tasks():
 
 @router.post("/batch_tasks", response_class=JSONResponse)
 async def batch_get_tasks(request: BatchTaskQueryRequest):
+    logger.debug("Batch task query", extra={"count": len(request.task_ids)})
     results = []
     all_finished = True
     for task_id in request.task_ids:
@@ -143,18 +172,22 @@ async def batch_get_tasks(request: BatchTaskQueryRequest):
 @router.get("/info", response_class=JSONResponse)
 async def api_get_video_info(url: str = Query(..., description="The URL of the video")):
     try:
+        logger.info("Fetching video info", extra={"url": url})
         result = get_video_info(url)
         return {"status": "success", "data": result}
     except Exception as e:
+        logger.error("Failed to fetch video info", extra={"url": url, "error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/formats", response_class=JSONResponse)
 async def api_list_formats(url: str = Query(..., description="The URL of the video")):
     try:
+        logger.info("Fetching video formats", extra={"url": url})
         result = list_available_formats(url)
         return {"status": "success", "data": result}
     except Exception as e:
+        logger.error("Failed to fetch video formats", extra={"url": url, "error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -162,8 +195,13 @@ async def api_list_formats(url: str = Query(..., description="The URL of the vid
 async def download_completed_video(task_id: str):
     task = state.get_task(task_id)
     if not task:
+        logger.warning("Task not found for file download", extra={"task_id": task_id})
         raise HTTPException(status_code=404, detail=f"Task with ID {task_id} not found")
     if task.status != "completed":
+        logger.warning("Task not completed for file download", extra={
+            "task_id": task_id,
+            "status": task.status
+        })
         raise HTTPException(status_code=400, detail=f"Task is not completed yet. Current status: {task.status}")
     if not task.result:
         raise HTTPException(status_code=500, detail="Task completed but no result information available")
@@ -178,7 +216,16 @@ async def download_completed_video(task_id: str):
                 ext = task.result.get("ext", "mp4")
                 filename = os.path.join(task.output_path, f"{title}.{ext}")
         if not os.path.exists(filename):
+            logger.error("Video file not found", extra={
+                "task_id": task_id,
+                "filename": filename
+            })
             raise HTTPException(status_code=404, detail="Video file not found on server")
+
+        logger.info("Serving video file", extra={
+            "task_id": task_id,
+            "filename": filename
+        })
         file_basename = os.path.basename(filename)
         return FileResponse(
             path=filename,
@@ -186,5 +233,10 @@ async def download_completed_video(task_id: str):
             media_type="application/octet-stream"
         )
     except Exception as e:
+        logger.error("Error accessing video file", extra={
+            "task_id": task_id,
+            "error": str(e)
+        })
         raise HTTPException(status_code=500, detail=f"Error accessing video file: {str(e)}")
+
 

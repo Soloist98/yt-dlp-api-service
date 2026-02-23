@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import SessionLocal, TaskModel, init_database
+from logger import logger
 
 
 def NormalizeString(s: str) -> str:
@@ -39,7 +40,9 @@ class State:
 
     def __init__(self):
         """初始化数据库"""
+        logger.info("Initializing task manager")
         init_database()
+        logger.info("Task manager initialized successfully")
 
     def _get_db(self) -> Session:
         """获取数据库会话"""
@@ -59,10 +62,19 @@ class State:
             )
             db.add(db_task)
             db.commit()
+            logger.info("Task created", extra={
+                "task_id": task_id,
+                "url": url,
+                "output_path": output_path,
+                "format": format
+            })
             return task_id
         except Exception as e:
             db.rollback()
-            print(f"Error adding task: {e}")
+            logger.error("Failed to create task", extra={
+                "url": url,
+                "error": str(e)
+            })
             raise
         finally:
             db.close()
@@ -73,6 +85,7 @@ class State:
         try:
             db_task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
             if not db_task:
+                logger.debug("Task not found", extra={"task_id": task_id})
                 return None
 
             result = json.loads(db_task.result) if db_task.result else None
@@ -86,7 +99,10 @@ class State:
                 error=db_task.error
             )
         except Exception as e:
-            print(f"Error getting task: {e}")
+            logger.error("Failed to get task", extra={
+                "task_id": task_id,
+                "error": str(e)
+            })
             return None
         finally:
             db.close()
@@ -103,15 +119,33 @@ class State:
         try:
             db_task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
             if db_task:
+                old_status = db_task.status
                 db_task.status = status
                 if result:
                     db_task.result = json.dumps(result)
                 if error:
                     db_task.error = error
                 db.commit()
+
+                log_extra = {
+                    "task_id": task_id,
+                    "old_status": old_status,
+                    "new_status": status
+                }
+
+                if error:
+                    logger.error("Task failed", extra={**log_extra, "error": error})
+                elif status == "completed":
+                    logger.info("Task completed", extra=log_extra)
+                else:
+                    logger.info("Task status updated", extra=log_extra)
         except Exception as e:
             db.rollback()
-            print(f"Error updating task: {e}")
+            logger.error("Failed to update task", extra={
+                "task_id": task_id,
+                "status": status,
+                "error": str(e)
+            })
         finally:
             db.close()
 
@@ -133,9 +167,10 @@ class State:
                     error=db_task.error
                 )
                 tasks.append(task)
+            logger.debug("Listed tasks", extra={"count": len(tasks)})
             return tasks
         except Exception as e:
-            print(f"Error listing tasks: {e}")
+            logger.error("Failed to list tasks", extra={"error": str(e)})
             return []
         finally:
             db.close()
@@ -153,6 +188,12 @@ class State:
             if not db_task:
                 return None
 
+            logger.debug("Found existing task", extra={
+                "task_id": db_task.id,
+                "url": url,
+                "status": db_task.status
+            })
+
             result = json.loads(db_task.result) if db_task.result else None
             return Task(
                 id=db_task.id,
@@ -164,7 +205,10 @@ class State:
                 error=db_task.error
             )
         except Exception as e:
-            print(f"Error checking task existence: {e}")
+            logger.error("Failed to check task existence", extra={
+                "url": url,
+                "error": str(e)
+            })
             return None
         finally:
             db.close()
@@ -173,12 +217,14 @@ class State:
         """清除所有任务"""
         db = self._get_db()
         try:
+            count = db.query(TaskModel).count()
             db.query(TaskModel).delete()
             db.commit()
+            logger.warning("All tasks cleared", extra={"count": count})
             return True
         except Exception as e:
             db.rollback()
-            print(f"Error clearing all tasks: {e}")
+            logger.error("Failed to clear tasks", extra={"error": str(e)})
             return False
         finally:
             db.close()
