@@ -15,6 +15,8 @@ state = State()
 # 使用配置的线程池大小创建全局线程池
 executor = ThreadPoolExecutor(max_workers=settings.thread_pool_size)
 
+class BatchTaskQueryRequest(BaseModel):
+    task_ids: list[str]
 
 class DownloadRequest(BaseModel):
     url: str
@@ -165,3 +167,30 @@ async def list_all_tasks():
     tasks = state.list_tasks()
     logger.debug("Listed all tasks", extra={"count": len(tasks)})
     return {"status": "success", "data": tasks}
+
+@router.post("/batch_tasks", response_class=JSONResponse)
+async def batch_get_tasks(request: BatchTaskQueryRequest):
+    logger.debug("Batch task query", extra={"count": len(request.task_ids)})
+    results = []
+    all_finished = True
+    for task_id in request.task_ids:
+        task = state.get_task(task_id)
+        if not task:
+            results.append({
+                "id": task_id,
+                "status": "not_found"
+            })
+            continue
+        task_info = {
+            "id": task.id,
+            "url": task.url,
+            "status": task.status
+        }
+        if task.status == "completed" and task.result:
+            task_info["result"] = task.result
+        elif task.status == "failed" and task.error:
+            task_info["error"] = task.error
+        if task.status not in ("completed", "failed"):
+            all_finished = False
+        results.append(task_info)
+    return {"status": "success", "data": results, "all_finished": all_finished}
