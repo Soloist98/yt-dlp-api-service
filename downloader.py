@@ -9,7 +9,7 @@ def download_video(url: str, output_path: str = "./downloads", format: str = "be
     """下载视频"""
     os.makedirs(output_path, exist_ok=True)
     ydl_opts = {
-        'outtmpl': os.path.join(output_path, NormalizeString(format) + '-%(title)s.%(ext)s'),
+        'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
         'quiet': quiet,
         'no_warnings': quiet,
         'format': format,

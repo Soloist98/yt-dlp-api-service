@@ -68,13 +68,15 @@ def create_or_get_task(request: DownloadRequest) -> str:
         request.output_path
     )
 
-    # 从数据库查找已存在任务
-    existing_task = state.task_exists(request.url, request.output_path, request.format)
+    # 从数据库查找已存在任务（只根据URL判断）
+    existing_task = state.task_exists(request.url)
     if existing_task:
         logger.info("Reusing existing task", extra={
             "task_id": existing_task.id,
             "url": request.url,
-            "status": existing_task.status
+            "status": existing_task.status,
+            "existing_output_path": existing_task.output_path,
+            "requested_output_path": request.output_path
         })
         return existing_task.id
 

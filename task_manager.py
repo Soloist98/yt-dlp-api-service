@@ -175,14 +175,12 @@ class State:
         finally:
             db.close()
 
-    def task_exists(self, url: str, output_path: str, format: str) -> Optional[Task]:
-        """检查任务是否已存在"""
+    def task_exists(self, url: str) -> Optional[Task]:
+        """检查任务是否已存在（只根据URL判断）"""
         db = self._get_db()
         try:
             db_task = db.query(TaskModel).filter(
-                TaskModel.url == url,
-                TaskModel.output_path == output_path,
-                TaskModel.format == format
+                TaskModel.url == url
             ).first()
 
             if not db_task:
