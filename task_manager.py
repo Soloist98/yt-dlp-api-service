@@ -25,6 +25,7 @@ class Task(BaseModel):
     """任务数据模型"""
     id: str
     url: str
+    video_title: Optional[str] = None
     output_path: str
     format: str
     status: str
@@ -92,6 +93,7 @@ class State:
             return Task(
                 id=db_task.id,
                 url=db_task.url,
+                video_title=db_task.video_title,
                 output_path=db_task.output_path,
                 format=db_task.format,
                 status=db_task.status,
@@ -123,6 +125,9 @@ class State:
                 db_task.status = status
                 if result:
                     db_task.result = json.dumps(result)
+                    # 从结果中提取视频标题
+                    if 'title' in result:
+                        db_task.video_title = result['title']
                 if error:
                     db_task.error = error
                 db.commit()
@@ -136,7 +141,10 @@ class State:
                 if error:
                     logger.error("Task failed", extra={**log_extra, "error": error})
                 elif status == "completed":
-                    logger.info("Task completed", extra=log_extra)
+                    logger.info("Task completed", extra={
+                        **log_extra,
+                        "video_title": db_task.video_title
+                    })
                 else:
                     logger.info("Task status updated", extra=log_extra)
         except Exception as e:
@@ -160,6 +168,7 @@ class State:
                 task = Task(
                     id=db_task.id,
                     url=db_task.url,
+                    video_title=db_task.video_title,
                     output_path=db_task.output_path,
                     format=db_task.format,
                     status=db_task.status,
@@ -196,6 +205,7 @@ class State:
             return Task(
                 id=db_task.id,
                 url=db_task.url,
+                video_title=db_task.video_title,
                 output_path=db_task.output_path,
                 format=db_task.format,
                 status=db_task.status,

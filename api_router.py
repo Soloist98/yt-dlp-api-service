@@ -120,6 +120,7 @@ async def get_task_status(task_id: str):
         "data": {
             "id": task.id,
             "url": task.url,
+            "video_title": task.video_title,
             "status": task.status
         }
     }

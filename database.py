@@ -16,7 +16,8 @@ class TaskModel(Base):
     __tablename__ = "tasks"
 
     id = Column(String(36), primary_key=True)
-    url = Column(Text, nullable=False)
+    url = Column(Text, nullable=False, index=True)
+    video_title = Column(String(500), nullable=True)  # 视频标题
     output_path = Column(String(500), nullable=False)
     format = Column(String(100), nullable=False)
     status = Column(String(20), nullable=False, index=True)
@@ -25,7 +26,7 @@ class TaskModel(Base):
     timestamp = Column(DateTime, nullable=False, default=datetime.now, index=True)
 
     def __repr__(self):
-        return f"<Task(id={self.id}, url={self.url}, status={self.status})>"
+        return f"<Task(id={self.id}, url={self.url}, title={self.video_title}, status={self.status})>"
 
 
 # 创建数据库引擎
