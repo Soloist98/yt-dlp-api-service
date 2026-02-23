@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A RESTful API service built with FastAPI that wraps yt-dlp for video downloading and information retrieval. The service provides asynchronous download processing with persistent task tracking using SQLAlchemy ORM, supporting both SQLite and MySQL databases.
+A RESTful API service built with FastAPI that wraps yt-dlp for video downloading and task management. The service provides asynchronous download processing with persistent task tracking using SQLAlchemy ORM, supporting both SQLite and MySQL databases, with structured logging via Loguru.
 
 ## Development Commands
 
@@ -14,104 +14,202 @@ pip install -r requirements.txt
 
 # Configure database (copy and edit .env file)
 cp .env.example .env
+vi .env  # Edit configuration
 
 # Run the development server
 python main.py
 # Server starts at http://localhost:8000 (configurable via .env)
 
-# Docker build and run
-docker build -t yt-dlp-api .
-docker run -p 8000:8000 -v $(pwd)/downloads:/app/downloads yt-dlp-api
+# Package for deployment
+./package.sh
+# Creates dist/yt-dlp-api_TIMESTAMP/ directory
+
+# Deploy to production (Linux)
+./scripts/start.sh      # Start service
+./scripts/stop.sh       # Stop service
+./scripts/restart.sh    # Restart service
+
+# Install as systemd service
+sudo ./scripts/install-service.sh
+sudo systemctl status yt-dlp-api
 ```
 
 ## Configuration
 
-The application uses environment variables for configuration. Key settings:
+All configuration is managed through `.env` file using pydantic-settings:
 
-- **Database**: Supports SQLite (default) and MySQL
-  - `DATABASE_TYPE`: sqlite or mysql
-  - `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
-  - `SQLITE_DB_FILE`: SQLite database file path
-- **Application**: `APP_HOST`, `APP_PORT`
-- **Downloads**: `DEFAULT_DOWNLOAD_PATH`, `MAX_CONCURRENT_DOWNLOADS`, `THREAD_POOL_SIZE`
+**Database:**
+- `DATABASE_TYPE`: sqlite or mysql
+- `MYSQL_*`: MySQL connection parameters
+- `SITE_PATH_MAPPING`: JSON mapping for site-specific subdirectories (e.g., `{"pornhub": "adult"}`)
 
-See `.env.example` for all available configuration options.
+**Application:**
+- `APP_HOST`, `APP_PORT`: Server binding
+- `DEFAULT_DOWNLOAD_PATH`: Base download directory
+- `THREAD_POOL_SIZE`: Global thread pool size for downloads
+
+**Logging:**
+- `LOG_LEVEL`: INFO, DEBUG, WARNING, ERROR
+- `LOG_FORMAT`: json or text
+- `LOG_FILE`, `LOG_ROTATION`, `LOG_RETENTION`: Log management
 
 ## Architecture
 
-The application follows a layered architecture with configuration management:
+### Layered Structure
 
-1. **Configuration Layer** (`config.py`): Centralized configuration using pydantic-settings
-2. **Database Layer** (`database.py`): SQLAlchemy ORM models and connection management
-3. **API Layer** (`api_router.py`): FastAPI router defining all REST endpoints
-4. **Business Logic** (`downloader.py`): Thin wrapper around yt-dlp library
-5. **Data Layer** (`task_manager.py`): Task persistence and state management
+1. **Configuration Layer** (`config.py`)
+   - Centralized settings using pydantic-settings
+   - Environment variable and .env file support
+   - `get_output_path_for_url()`: Dynamic path mapping based on URL
 
-### Key Components
+2. **Logging Layer** (`logger.py`)
+   - Structured logging with Loguru
+   - Dual output: console (colored text) + file (JSON)
+   - Automatic rotation and compression
 
-- **Configuration Management**: Uses pydantic-settings to load from environment variables and .env files
-- **ORM Framework**: SQLAlchemy for database abstraction, supporting multiple database backends
-- **Connection Pool**: Automatic database connection pooling with health checks
-- **Task Management**: All download operations are tracked as tasks with unique IDs
-- **Async Processing**: Downloads run asynchronously using a global ThreadPoolExecutor
-- **Task Deduplication**: The system checks for existing tasks with the same URL, output path, and format before creating new ones
-- **File Serving**: Completed downloads can be retrieved via the `/download/{task_id}/file` endpoint
+3. **Database Layer** (`database.py`)
+   - SQLAlchemy ORM models
+   - Connection pooling with health checks
+   - Supports SQLite and MySQL
+
+4. **Data Layer** (`task_manager.py`)
+   - Task CRUD operations
+   - `task_exists(url)`: Checks for duplicate tasks by URL only
+   - Automatic video title extraction from download results
+
+5. **Business Logic** (`downloader.py`)
+   - Thin wrapper around yt-dlp
+   - File naming: `%(title)s.%(ext)s` (no format prefix)
+
+6. **API Layer** (`api_router.py`)
+   - FastAPI router with 4 core endpoints
+   - Global ThreadPoolExecutor for async downloads
+   - Automatic retry logic for failed tasks
+
+### Key Behaviors
+
+**Task Deduplication:**
+- Tasks are deduplicated by URL only (not by output_path or format)
+- Completed tasks: Return existing task_id
+- Failed tasks: Automatically reset to pending and retry
+- Pending tasks: Return existing task_id (avoid duplicate downloads)
+
+**Site-Specific Paths:**
+- Configured via `SITE_PATH_MAPPING` in .env
+- Example: URLs containing "pornhub" → downloadsub/
+- Prevents hardcoded special cases
+
+**Video Title Storage:**
+- `video_title` field added to database
+- Automatically extracted from yt-dlp results on completion
+- Returned in API responses
+
+**Structured Logging:**
+- All operations logged with context (task_id, url, status)
+- JSON format for production analysis
+- Separate error log file
 
 ### Database Schema
 
-The `tasks` table stores:
-- Task ID (UUID, primary key)
-- Video URL
-- Output path and format
-- Status (pending/completed/failed) - indexed
-- Result JSON (video metadata when completed)
-- Error message (when failed)
-- Timestamp - indexed
-
-### Special Behaviors
-
-- Configurable default download paths via `DEFAULT_DOWNLOAD_PATH`
-- Special handling for certain video sites (e.g., pornhub URLs automatically get a subdirectory)
-- Filename sanitization via `NormalizeString()` replaces special characters with underscores
-- Global thread pool for efficient resource management
+```sql
+tasks (
+    id VARCHAR(36) PRIMARY KEY,
+    url TEXT NOT NULL,              -- Indexed for deduplication
+    video_title VARCHAR(500),       -- Extracted on completion
+    output_path VARCHAR(500),
+    format ),
+    status VARCHAR(20) NOT NULL,    -- Indexed: pending/completed/failed
+    result TEXT,                    -- JSON metadata
+    error TEXT,
+    timestamp DATETIME NOT NULL     -- Indexed
+)
+```
 
 ## API Endpoints
 
 - `POST /download` - Submit single download task
 - `POST /batch_download` - Submit multiple download tasks
-- `GET /task/{task_id}` - Get task status
+- `GET /task/{task_id}` - Get task status (includes video_title)
 - `GET /tasks` - List all tasks
+
+## Deployment
+
+### Manual Deployment
+
+```bash
+# Package
+./package.sh
+
+# Copy to server
+scp -r dist/yt-dlp-api_* user@server:/opt/
+
+# On server
+cd /opt/yt-dlp-api_*
+cp .env.example .env
+vi .env
+./scripts/start.sh
+```
+
+### systemd Service (Production)
+
+```bash
+# Deploy to /opt/yt-dlp-api
+sudo mv yt-dlp-api_* /opt/yt-dlp-api
+
+# Install service
+cd /opt/yt-dlp-api/scripts
+sudo ./install-service.sh
+
+# Manage
+sudo systemctl start/stop/restart yt-dlp-api
+sudo journalctl -u yt-dlp-api -f
+```
+
+See `SYSTEMD.md` for detailed systemd deployment guide.
+
+## Important Implementation Details
+
+1. **No format prefix in filenames**: Files are saved as `title.ext` not `format-title.ext`
+
+2. **URL-based deduplicame URL = same task, regardless of output_path or format
+
+3. **Automatic retry**: Failed tasks automatically retry when the same URL is submitted again
+
+4. **Site path mapping**: Use `SITE_PATH_MAPPING` in .env, not hardcoded logic
+
+5. **Global thread pool**: Single ThreadPoolExecutor shared across all downloads (configured via `THREAD_POOL_SIZE`)
+
+6. **Structured logs**: All print statements replaced with logger calls including context
 
 ## Dependencies
 
 - **FastAPI**: Web framework
 - **yt-dlp**: Video download library (core functionality)
 - **uvicorn**: ASGI server
-- **pydantic**: Data validation
 - **pydantic-settings**: Configuration management
 - **SQLAlchemy**: ORM framework
-- **pymysql**: MySQL database driver
+- **pymysql**: MySQL driver
 - **loguru**: Structured logging
-- **ffmpeg**: Required system dependency for video processing (installed in Docker image)
+- **ffmpeg**: System dependency for video processing
 
 ## Testing
 
-The API documentation is auto-generated and available at:
+API documentation auto-generated at:
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
 ## Git Commit Convention
 
-This project follows a specific commit message format:
 ```
 [type]: <type> [description]:<description>
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
-Example: `[type]: feat [description]:添加清除表接口，去除内存缓存`
+Example: `[type]: feat [description]:添加视频标题字段到数据库`
 
-## Notes
+## Additional Documentation
 
-- The project includes both English (README.md) and Chinese (README_CN.md) documentation
-- A pre-built Docker image is available: `docker run -p 8000:8000 hipc/yt-dlp`
+- `README_CN.md`: Chinese documentation
+- `SYSTEMD.md`: systemd service deployment guide
+- .md`: Planned improvements and known is `INSTALL.md`: Generated in package, deployment instructions
