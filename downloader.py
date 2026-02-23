@@ -5,7 +5,8 @@ from task_manager import NormalizeString
 from logger import logger
 
 
-def download_video(url: str, output_path: str = "./downloads", format: str = "best", quiet: bool = False) -> Dict[str, Any]:
+def download_video(url: str, output_path: str = "./downloads", format: str = "best", quiet: bool = False) -> Dict[
+    str, Any]:
     """下载视频"""
     os.makedirs(output_path, exist_ok=True)
     ydl_opts = {
@@ -21,7 +22,7 @@ def download_video(url: str, output_path: str = "./downloads", format: str = "be
         "output_path": output_path,
         "format": format
     })
-
+    logger.debug("YTDLP VERSION ============== ", extra={"version": yt_dlp.version.__version__})
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -85,4 +86,4 @@ def list_available_formats(url: str) -> List[Dict[str, Any]]:
             "url": url,
             "error": str(e)
         })
-        raise 
+        raise
