@@ -80,12 +80,7 @@ The `tasks` table stores:
 - `POST /download` - Submit single download task
 - `POST /batch_download` - Submit multiple download tasks
 - `GET /task/{task_id}` - Get task status
-- `POST /batch_tasks` - Query multiple tasks at once
 - `GET /tasks` - List all tasks
-- `DELETE /tasks` - Clear all tasks from database
-- `GET /info?url=...` - Get video metadata without downloading
-- `GET /formats?url=...` - List available video formats
-- `GET /download/{task_id}/file` - Download completed video file
 
 ## Dependencies
 
@@ -93,7 +88,10 @@ The `tasks` table stores:
 - **yt-dlp**: Video download library (core functionality)
 - **uvicorn**: ASGI server
 - **pydantic**: Data validation
-- **sqlite3**: Built-in Python module for database
+- **pydantic-settings**: Configuration management
+- **SQLAlchemy**: ORM framework
+- **pymysql**: MySQL database driver
+- **loguru**: Structured logging
 - **ffmpeg**: Required system dependency for video processing (installed in Docker image)
 
 ## Testing
