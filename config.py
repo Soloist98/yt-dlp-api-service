@@ -3,7 +3,8 @@
 支持从环境变量和.env文件加载配置
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Optional, Dict
+import json
 
 
 class Settings(BaseSettings):
@@ -31,6 +32,11 @@ class Settings(BaseSettings):
     default_download_path: str = "./downloads"
     max_concurrent_downloads: int = 5
     thread_pool_size: int = 10
+
+    # 特殊站点路径配置（JSON格式）
+    # 格式: {"domain_keyword": "subdirectory"}
+    # 例如: {"pornhub": "adult", "youtube": "youtube"}
+    site_path_mapping: str = "{}"
 
     # 日志配置
     log_level: str = "INFO"
@@ -60,6 +66,29 @@ class Settings(BaseSettings):
             )
         else:
             return f"sqlite:///{self.sqlite_db_file}"
+
+    def get_site_path_mapping(self) -> Dict[str, str]:
+        """获取站点路径映射配置"""
+        try:
+            return json.loads(self.site_path_mapping)
+        except json.JSONDecodeError:
+            return {}
+
+    def get_output_path_for_url(self, url: str, base_path: str) -> str:
+        """
+        根据URL获取输出路径
+        如果URL包含特殊站点关键词，则添加对应的子目录
+        """
+        site_mapping = self.get_site_path_mapping()
+
+        for keyword, subdirectory in site_mapping.items():
+            if keyword.lower() in url.lower():
+                # 确保路径不重复添加子目录
+                if not base_path.endswith(subdirectory):
+                    return f"{base_path}/{subdirectory}"
+                return base_path
+
+        return base_path
 
 
 # 全局配置实例

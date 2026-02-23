@@ -62,10 +62,11 @@ async def process_download_task(task_id: str, url: str, output_path: str, format
 
 
 def create_or_get_task(request: DownloadRequest) -> str:
-    # 特殊处理
-    if "pornhub" in request.url:
-        if not request.output_path.endswith("pornhub"):
-            request.output_path = f"{request.output_path}/pornhub"
+    # 使用配置化的路径映射处理特殊站点
+    request.output_path = settings.get_output_path_for_url(
+        request.url,
+        request.output_path
+    )
 
     # 从数据库查找已存在任务
     existing_task = state.task_exists(request.url, request.output_path, request.format)
