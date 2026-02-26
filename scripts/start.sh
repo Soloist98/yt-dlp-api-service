@@ -71,5 +71,13 @@ echo ""
 pip install uvicorn
 
 # 4. 运行应用
-uvicorn main:app --host 0.0.0.0 --port ${APP_PORT:-8000}
+# 获取脚本所在目录的父目录（项目根目录）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+echo "项目根目录: $PROJECT_ROOT"
+cd "$PROJECT_ROOT"
+
+# 从项目根目录运行，使用 app.main:app
+uvicorn app.main:app --host ${APP_HOST:-0.0.0.0} --port ${APP_PORT:-8000}
 

@@ -164,11 +164,55 @@ async def get_task_status(task_id: str):
 
 
 @router.get("/tasks", response_class=JSONResponse)
-async def list_all_tasks():
-    """列出所有任务"""
-    tasks = state.list_tasks()
-    logger.debug("Listed all tasks", extra={"count": len(tasks)})
-    return {"status": "success", "data": tasks}
+async def list_all_tasks(
+    status: str = None,
+    page: int = 1,
+    page_size: int = 100,
+    order: str = "desc"
+):
+    """
+    列出任务（支持过滤、分页和排序）
+
+    Args:
+        status: 任务状态过滤 (pending/completed/failed)
+        page: 页码（从1开始，默认1）
+        page_size: 每页数量（默认100）
+        order: 排序方向 (asc/desc，默认desc)，按时间排序
+    """
+    # 参数验证
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 1000:
+        page_size = 100
+    if status and status not in ["pending", "completed", "failed"]:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    if order not in ["asc", "desc"]:
+        order = "desc"
+
+    tasks, total = state.list_tasks(
+        status=status,
+        page=page,
+        page_size=page_size,
+        order=order
+    )
+
+    logger.debug("Listed tasks", extra={
+        "count": len(tasks),
+        "total": total,
+        "page": page,
+        "page_size": page_size
+    })
+
+    return {
+        "status": "success",
+        "data": tasks,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+    }
 
 @router.post("/batch_tasks", response_class=JSONResponse)
 async def batch_get_tasks(request: BatchTaskQueryRequest):

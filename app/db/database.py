@@ -6,7 +6,7 @@ from sqlalchemy import Column, String, Text, DateTime, create_engine, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-from config import settings
+from app.config import settings
 import sys
 
 Base = declarative_base()
@@ -24,7 +24,8 @@ class TaskModel(Base):
     status = Column(String(20), nullable=False, index=True)
     result = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
-    timestamp = Column(DateTime, nullable=False, default=datetime.now, index=True)
+    create_time = Column(DateTime, nullable=False, default=datetime.now, index=True)
+    update_time = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, index=True)
 
     # 为 TEXT 类型的 url 列创建前缀索引（MySQL 限制）
     __table_args__ = (

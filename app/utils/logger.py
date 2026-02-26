@@ -6,7 +6,7 @@ import sys
 import os
 from pathlib import Path
 from loguru import logger
-from config import settings
+from app.config import settings
 
 
 def serialize_record(record):

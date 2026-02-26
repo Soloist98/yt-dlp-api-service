@@ -31,6 +31,8 @@ class Task(BaseModel):
     status: str
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    create_time: str
+    update_time: str
 
     class Config:
         from_attributes = True
@@ -98,7 +100,9 @@ class State:
                 format=db_task.format,
                 status=db_task.status,
                 result=result,
-                error=db_task.error
+                error=db_task.error,
+                create_time=db_task.create_time.isoformat(),
+                update_time=db_task.update_time.isoformat()
             )
         except Exception as e:
             logger.error("Failed to get task", extra={
@@ -114,9 +118,19 @@ class State:
         task_id: str,
         status: str,
         result: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        update_time: bool = True
     ) -> None:
-        """更新任务状态"""
+        """
+        更新任务状态
+
+        Args:
+            task_id: 任务ID
+            status: 新状态
+            result: 结果数据
+            error: 错误信息
+            update_time: 是否更新 update_time（默认True，重复提交时为False）
+        """
         db = self._get_db()
         try:
             db_task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
@@ -130,6 +144,12 @@ class State:
                         db_task.video_title = result['title']
                 if error is not None:  # 允许清除错误信息
                     db_task.error = error
+
+                # 手动更新 update_time（失败重试时）
+                if update_time and status == "pending" and old_status == "failed":
+                    from datetime import datetime
+                    db_task.update_time = datetime.now()
+
                 db.commit()
 
                 log_extra = {
@@ -159,11 +179,48 @@ class State:
         finally:
             db.close()
 
-    def list_tasks(self) -> List[Task]:
-        """列出所有任务"""
+    def list_tasks(
+        self,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 100,
+        order: str = "desc"
+    ) -> tuple[List[Task], int]:
+        """
+        列出任务（支持过滤、分页和排序）
+
+        Args:
+            status: 任务状态过滤 (pending/completed/failed)
+            page: 页码（从1开始）
+            page_size: 每页数量
+            order: 排序方向 (asc/desc)，按时间排序
+
+        Returns:
+            (tasks, total): 任务列表和总数
+        """
         db = self._get_db()
         try:
-            db_tasks = db.query(TaskModel).order_by(TaskModel.timestamp.desc()).all()
+            # 构建查询
+            query = db.query(TaskModel)
+
+            # 状态过滤
+            if status:
+                query = query.filter(TaskModel.status == status)
+
+            # 获取总数
+            total = query.count()
+
+            # 按更新时间排序
+            if order == "asc":
+                query = query.order_by(TaskModel.update_time.asc())
+            else:
+                query = query.order_by(TaskModel.update_time.desc())
+
+            # 分页
+            offset = (page - 1) * page_size
+            db_tasks = query.offset(offset).limit(page_size).all()
+
+            # 转换为 Task 对象
             tasks = []
             for db_task in db_tasks:
                 result = json.loads(db_task.result) if db_task.result else None
@@ -175,14 +232,23 @@ class State:
                     format=db_task.format,
                     status=db_task.status,
                     result=result,
-                    error=db_task.error
+                    error=db_task.error,
+                    create_time=db_task.create_time.isoformat(),
+                    update_time=db_task.update_time.isoformat()
                 )
                 tasks.append(task)
-            logger.debug("Listed tasks", extra={"count": len(tasks)})
-            return tasks
+
+            logger.debug("Listed tasks", extra={
+                "count": len(tasks),
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "status_filter": status
+            })
+            return tasks, total
         except Exception as e:
             logger.error("Failed to list tasks", extra={"error": str(e)})
-            return []
+            return [], 0
         finally:
             db.close()
 
@@ -212,7 +278,9 @@ class State:
                 format=db_task.format,
                 status=db_task.status,
                 result=result,
-                error=db_task.error
+                error=db_task.error,
+                create_time=db_task.create_time.isoformat(),
+                update_time=db_task.update_time.isoformat()
             )
         except Exception as e:
             logger.error("Failed to check task existence", extra={
